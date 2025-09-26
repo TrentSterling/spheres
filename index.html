@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Procedural Packed Texture Generator by Trent (Tront) Sterling</title>
-    <meta name="description" content="An interactive tool for generating procedurally packed and tiled textures for game development VFX, inspired by TUATARA and created by Trent Sterling with Gemini.">
+    <meta name="description" content="An interactive tool with a live WebGL shader preview for generating procedurally packed textures for game development VFX, created by Trent Sterling.">
     <style>
         :root {
             --bg-color: #0d0f14; --surface-color: #1a1c23; --border-color: #30363d;
@@ -41,8 +41,8 @@
         .control-item { display: flex; flex-direction: column; }
         .control-item label { display: block; margin-bottom: 0.5rem; }
         .control-item span { color: var(--accent-color); font-weight: bold; }
-        .control-item input { width: 100%; }
-        input[type="number"] { background: #0d0f14; border: 1px solid var(--border-color); color: var(--text-color); padding: 0.4rem; border-radius: 4px; }
+        .control-item input, .control-item select { width: 100%; }
+        input[type="number"], select { background: #0d0f14; border: 1px solid var(--border-color); color: var(--text-color); padding: 0.4rem; border-radius: 4px; }
         button {
             background: #5865F2;
             color: white;
@@ -88,7 +88,7 @@
             max-width: 560px;
             height: auto;
             border-radius: 8px;
-            margin: 1.5rem auto 0.5rem; /* Reduced bottom margin */
+            margin: 1.5rem auto 0.5rem;
             display: block;
             border: 1px solid var(--border-color);
         }
@@ -129,12 +129,21 @@
                 <label for="seed">Seed (0 for random):</label>
                 <input type="number" id="seed" value="0">
             </div>
+             <div class="control-item" title="The resolution of the output textures. Larger sizes provide more detail but take longer to generate.">
+                <label for="textureSize">Texture Size:</label>
+                <select id="textureSize">
+                    <option value="256">256x256</option>
+                    <option value="512">512x512</option>
+                    <option value="1024" selected>1024x1024</option>
+                    <option value="2048">2048x2048</option>
+                </select>
+            </div>
         </div>
         
         <button id="randomize-btn">Generate New Layout</button>
 
         <div id="canvas-container"></div>
-        <p class="download-tip">Tip: Click any generated image to download it as a PNG.</p>
+        <p class="download-tip">Tip: Click any generated image (except the live preview) to download it as a PNG.</p>
     </main>
 
     <footer>
@@ -152,236 +161,158 @@
         </p>
     </footer>
 
+    <!-- SHADER CODE -->
+    <script id="vertex-shader" type="x-shader/x-vertex">
+        attribute vec2 a_position;
+        attribute vec2 a_tex_coord;
+        varying vec2 v_tex_coord;
+        void main() {
+            gl_Position = vec4(a_position, 0.0, 1.0);
+            v_tex_coord = a_tex_coord;
+        }
+    </script>
+    <script id="fragment-shader" type="x-shader/x-fragment">
+        precision mediump float;
+        varying vec2 v_tex_coord;
+        uniform sampler2D u_packed_texture;
+        uniform float u_time;
+
+        vec3 hsv2rgb(vec3 c) {
+            vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+            vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+            return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+        }
+
+        void main() {
+            vec4 packed_data = texture2D(u_packed_texture, v_tex_coord);
+            
+            float id = packed_data.b;
+            float radial_gradient = packed_data.a;
+
+            float pulse = (sin(u_time * 3.0 + id * 10.0) * 0.5 + 0.5);
+            float size_threshold = 1.0 - pulse;
+            float circle_mask = smoothstep(size_threshold - 0.05, size_threshold, radial_gradient);
+
+            if (circle_mask < 0.01) {
+                discard;
+            }
+
+            vec3 color = hsv2rgb(vec3(id, 0.8, 1.0));
+            
+            gl_FragColor = vec4(color, 1.0) * circle_mask;
+        }
+    </script>
+    
     <script>
-    // --- DOM ELEMENT REFERENCES ---
-    const controls = {
-        maxCircles: document.getElementById('maxCircles'),
-        minRadius: document.getElementById('minRadius'),
-        maxRadius: document.getElementById('maxRadius'),
-        placementAttempts: document.getElementById('placementAttempts'),
-        sizeBias: document.getElementById('sizeBias'),
-        seed: document.getElementById('seed'),
-    };
-    const valueSpans = {
-        maxCircles: document.getElementById('maxCirclesValue'),
-        minRadius: document.getElementById('minRadiusValue'),
-        maxRadius: document.getElementById('maxRadiusValue'),
-        placementAttempts: document.getElementById('placementAttemptsValue'),
-        sizeBias: document.getElementById('sizeBiasValue'),
-    };
+    const controls = { maxCircles: document.getElementById('maxCircles'), minRadius: document.getElementById('minRadius'), maxRadius: document.getElementById('maxRadius'), placementAttempts: document.getElementById('placementAttempts'), sizeBias: document.getElementById('sizeBias'), seed: document.getElementById('seed'), textureSize: document.getElementById('textureSize') };
+    const valueSpans = { maxCircles: document.getElementById('maxCirclesValue'), minRadius: document.getElementById('minRadiusValue'), maxRadius: document.getElementById('maxRadiusValue'), placementAttempts: document.getElementById('placementAttemptsValue'), sizeBias: document.getElementById('sizeBiasValue'), };
     const randomizeBtn = document.getElementById('randomize-btn');
     
-    // --- SEEDABLE PRNG ---
-    let rng;
-    function mulberry32(a) {
-        return function() {
-            a |= 0; a = a + 0x6D2B79F5 | 0;
-            let t = Math.imul(a ^ a >>> 15, 1 | a);
-            t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-            return ((t ^ t >>> 14) >>> 0) / 4294967296;
-        }
-    }
+    let rng; function mulberry32(a) { return function() { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; } }
     
-    // --- MAIN EXECUTION ---
+    let webGLCanvas;
+
     function runGeneration() {
-        const currentConfig = {
-            canvasSize: 512,
-            maxCircles: parseInt(controls.maxCircles.value, 10),
-            minRadius: parseInt(controls.minRadius.value, 10),
-            maxRadius: parseInt(controls.maxRadius.value, 10),
-            placementAttempts: parseInt(controls.placementAttempts.value, 10),
-            sizeBias: parseFloat(controls.sizeBias.value),
-            seed: parseInt(controls.seed.value, 10) || Math.floor(Math.random() * 1000000)
-        };
-        
-        // Update the seed input if it was random
-        if (parseInt(controls.seed.value, 10) === 0) {
-            controls.seed.value = currentConfig.seed;
-        }
-        
-        // Initialize the seeded random number generator
+        const currentConfig = { canvasSize: parseInt(controls.textureSize.value, 10), maxCircles: parseInt(controls.maxCircles.value, 10), minRadius: parseInt(controls.minRadius.value, 10), maxRadius: parseInt(controls.maxRadius.value, 10), placementAttempts: parseInt(controls.placementAttempts.value, 10), sizeBias: parseFloat(controls.sizeBias.value), seed: parseInt(controls.seed.value, 10) || Math.floor(Math.random() * 1000000) };
+        if (parseInt(controls.seed.value, 10) === 0) { controls.seed.value = currentConfig.seed; }
         rng = mulberry32(currentConfig.seed);
+        
+        webGLCanvas.width = currentConfig.canvasSize;
+        webGLCanvas.height = currentConfig.canvasSize;
 
         const circlesLayout = generateHierarchicalPackedCircles(currentConfig);
-
-        const uCanvas = getOrCreateCanvas('uCanvas', currentConfig.canvasSize);
-        const vCanvas = getOrCreateCanvas('vCanvas', currentConfig.canvasSize);
-        const idCanvas = getOrCreateCanvas('idCanvas', currentConfig.canvasSize);
-        const gradientCanvas = getOrCreateCanvas('gradientCanvas', currentConfig.canvasSize);
-        const packedCanvas = getOrCreateCanvas('packedCanvas', currentConfig.canvasSize);
-
+        const uCanvas = getOrCreateCanvas('uCanvas', currentConfig.canvasSize), vCanvas = getOrCreateCanvas('vCanvas', currentConfig.canvasSize), idCanvas = getOrCreateCanvas('idCanvas', currentConfig.canvasSize), gradientCanvas = getOrCreateCanvas('gradientCanvas', currentConfig.canvasSize), packedCanvas = getOrCreateCanvas('packedCanvas', currentConfig.canvasSize);
         renderUCoordinateTexture(uCanvas.getContext('2d'), circlesLayout, currentConfig.canvasSize);
         renderVCoordinateTexture(vCanvas.getContext('2d'), circlesLayout, currentConfig.canvasSize);
         renderIdTexture(idCanvas.getContext('2d'), circlesLayout, currentConfig.canvasSize);
         renderRadialGradientTexture(gradientCanvas.getContext('2d'), circlesLayout, currentConfig.canvasSize);
-        packTextures(packedCanvas.getContext('2d'), uCanvas, vCanvas, idCanvas, gradientCanvas, currentConfig.canvasSize);
-        
-        displayCanvases({
-            "U Coordinate (R Channel)": uCanvas,
-            "V Coordinate (G Channel)": vCanvas,
-            "Unique ID / Random Value (B Channel)": idCanvas,
-            "Normalized Radial Gradient (A Channel)": gradientCanvas,
-            "Packed Texture (RGBA)": packedCanvas
-        });
+        packTextures(packedCanvas, uCanvas, vCanvas, idCanvas, gradientCanvas);
+        displayCanvases({ "U Coordinate (R Channel)": uCanvas, "V Coordinate (G Channel)": vCanvas, "Unique ID / Random Value (B Channel)": idCanvas, "Normalized Radial Gradient (A Channel)": gradientCanvas, "Packed Texture (RGBA)": packedCanvas, "Live Shader Preview": webGLCanvas });
+        updateWebGLPackedTexture(packedCanvas);
     }
 
-    // Set up listeners for all sliders to update values and re-render
-    for (const key in valueSpans) {
-        controls[key].addEventListener('input', () => {
-            valueSpans[key].textContent = controls[key].value;
-            runGeneration();
-        });
-    }
-    // Listeners for inputs that don't have a value span
+    for (const key in valueSpans) { controls[key].addEventListener('input', () => { valueSpans[key].textContent = controls[key].value; runGeneration(); }); }
     controls.seed.addEventListener('input', runGeneration);
-    randomizeBtn.addEventListener('click', () => {
-        // Force a random seed when the button is clicked
-        controls.seed.value = 0;
-        runGeneration();
-    });
+    controls.textureSize.addEventListener('input', runGeneration);
+    randomizeBtn.addEventListener('click', () => { controls.seed.value = 0; runGeneration(); });
+    window.addEventListener('load', () => { webGLCanvas = initWebGLPreview(); runGeneration(); });
+
+    function generateHierarchicalPackedCircles(config) { const { canvasSize, maxCircles, minRadius, maxRadius, placementAttempts, sizeBias } = config; let circles = []; for (let i = 0; i < maxCircles; i++) { let newCircle = null; for (let attempt = 0; attempt < placementAttempts; attempt++) { const biasedMaxRadius = minRadius + (Math.pow(rng(), 1 / (sizeBias || 0.5)) * (maxRadius - minRadius)); const potentialCircle = { x: rng() * canvasSize, y: rng() * canvasSize, r: minRadius, id: rng(), maxR: biasedMaxRadius }; let hasOverlap = circles.some(existing => { for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) { if (Math.hypot(potentialCircle.x - (existing.x + dx * canvasSize), potentialCircle.y - (existing.y + dy * canvasSize)) < potentialCircle.r + existing.r) return true; } return false; }); if (!hasOverlap) { newCircle = potentialCircle; break; } } if (!newCircle) continue; while (newCircle.r < newCircle.maxR) { newCircle.r += 1; let hasCollision = circles.some(existing => { for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) { if (Math.hypot(newCircle.x - (existing.x + dx * canvasSize), newCircle.y - (existing.y + dy * canvasSize)) < newCircle.r + existing.r + 1) return true; } return false; }); if (hasCollision) { newCircle.r -= 1; break; } } circles.push(newCircle); } return circles; }
     
-    // Initial generation on page load
-    window.addEventListener('load', runGeneration);
-
-    /**
-     * Generates circles one-by-one, using the seeded RNG.
-     */
-    function generateHierarchicalPackedCircles(config) {
-        const { canvasSize, maxCircles, minRadius, maxRadius, placementAttempts, sizeBias } = config;
-        let circles = [];
-
-        for (let i = 0; i < maxCircles; i++) {
-            let newCircle = null;
-            for (let attempt = 0; attempt < placementAttempts; attempt++) {
-                const biasedMaxRadius = minRadius + (Math.pow(rng(), 1 / (sizeBias || 0.5)) * (maxRadius - minRadius));
-                const potentialCircle = {
-                    x: rng() * canvasSize, y: rng() * canvasSize,
-                    r: minRadius, id: rng(), maxR: biasedMaxRadius
-                };
-
-                let hasOverlap = circles.some(existing => {
-                    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
-                        const x2 = existing.x + dx * canvasSize, y2 = existing.y + dy * canvasSize;
-                        if (Math.hypot(potentialCircle.x - x2, potentialCircle.y - y2) < potentialCircle.r + existing.r) return true;
-                    }
-                    return false;
-                });
-                if (!hasOverlap) { newCircle = potentialCircle; break; }
-            }
-            if (!newCircle) continue;
-
-            while (newCircle.r < newCircle.maxR) {
-                newCircle.r += 1;
-                let hasCollision = circles.some(existing => {
-                    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
-                        const x2 = existing.x + dx * canvasSize, y2 = existing.y + dy * canvasSize;
-                        if (Math.hypot(newCircle.x - x2, newCircle.y - y2) < newCircle.r + existing.r + 1) return true;
-                    }
-                    return false;
-                });
-                if (hasCollision) { newCircle.r -= 1; break; }
-            }
-            circles.push(newCircle);
-        }
-        return circles;
-    }
-
-    // --- HELPER, RENDERING, and PACKING FUNCTIONS (Unchanged from previous version) ---
-    function getOrCreateCanvas(id, size) {
-        let canvas = document.getElementById(id);
-        if (!canvas) {
-            canvas = document.createElement('canvas');
-            canvas.id = id;
-            canvas.width = size;
-            canvas.height = size;
-        }
-        return canvas;
-    }
-
-    function drawTiled(ctx, size, drawCallback) {
-        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
-            ctx.save();
-            ctx.translate(dx * size, dy * size);
-            drawCallback(ctx);
-            ctx.restore();
-        }
-    }
-
+    function getOrCreateCanvas(id, size) { let canvas = document.getElementById(id); if (!canvas) { canvas = document.createElement('canvas'); canvas.id = id; } canvas.width = size; canvas.height = size; return canvas; }
+    function drawTiled(ctx, size, drawCallback) { for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) { ctx.save(); ctx.translate(dx * size, dy * size); drawCallback(ctx); ctx.restore(); }}
+    
     function renderUCoordinateTexture(ctx, circles, size) {
         ctx.fillStyle = 'black'; ctx.fillRect(0, 0, size, size);
         circles.forEach(circle => drawTiled(ctx, size, (tiledCtx) => {
-            const gradient = tiledCtx.createLinearGradient(circle.x - circle.r, 0, circle.x + circle.r, 0);
+            const gradient = tiledCtx.createLinearGradient(circle.x - circle.r, circle.y, circle.x + circle.r, circle.y);
             gradient.addColorStop(0, 'black'); gradient.addColorStop(1, 'white');
             tiledCtx.beginPath(); tiledCtx.arc(circle.x, circle.y, circle.r, 0, 2 * Math.PI);
             tiledCtx.fillStyle = gradient; tiledCtx.fill();
         }));
     }
-
     function renderVCoordinateTexture(ctx, circles, size) {
         ctx.fillStyle = 'black'; ctx.fillRect(0, 0, size, size);
         circles.forEach(circle => drawTiled(ctx, size, (tiledCtx) => {
-            const gradient = tiledCtx.createLinearGradient(0, circle.y - circle.r, 0, circle.y + circle.r);
+            const gradient = tiledCtx.createLinearGradient(circle.x, circle.y - circle.r, circle.x, circle.y + circle.r);
             gradient.addColorStop(0, 'black'); gradient.addColorStop(1, 'white');
             tiledCtx.beginPath(); tiledCtx.arc(circle.x, circle.y, circle.r, 0, 2 * Math.PI);
             tiledCtx.fillStyle = gradient; tiledCtx.fill();
         }));
     }
 
-    function renderIdTexture(ctx, circles, size) {
-        ctx.fillStyle = 'black'; ctx.fillRect(0, 0, size, size);
-        circles.forEach(circle => {
-            const intensity = Math.floor(circle.id * 255);
-            const color = `rgb(${intensity}, ${intensity}, ${intensity})`;
-            drawTiled(ctx, size, (tiledCtx) => {
-                tiledCtx.beginPath(); tiledCtx.arc(circle.x, circle.y, circle.r, 0, 2 * Math.PI);
-                tiledCtx.fillStyle = color; tiledCtx.fill();
-            });
-        });
+    function renderIdTexture(ctx, circles, size) { ctx.fillStyle = 'black'; ctx.fillRect(0, 0, size, size); circles.forEach(circle => { const intensity = Math.floor(circle.id * 255); const color = `rgb(${intensity}, ${intensity}, ${intensity})`; drawTiled(ctx, size, (tiledCtx) => { tiledCtx.beginPath(); tiledCtx.arc(circle.x, circle.y, circle.r, 0, 2 * Math.PI); tiledCtx.fillStyle = color; tiledCtx.fill(); }); }); }
+    function renderRadialGradientTexture(ctx, circles, size) { ctx.fillStyle = 'black'; ctx.fillRect(0, 0, size, size); circles.forEach(circle => drawTiled(ctx, size, (tiledCtx) => { const gradient = tiledCtx.createRadialGradient(circle.x, circle.y, 0, circle.x, circle.y, circle.r); gradient.addColorStop(0, 'white'); gradient.addColorStop(1, 'black'); tiledCtx.beginPath(); tiledCtx.arc(circle.x, circle.y, circle.r, 0, 2 * Math.PI); tiledCtx.fillStyle = gradient; tiledCtx.fill(); })); }
+    function packTextures(packedCanvas, uCanvas, vCanvas, idCanvas, gradientCanvas) { 
+        const ctx = packedCanvas.getContext('2d'); const size = packedCanvas.width;
+        const uData = uCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, size, size).data, vData = vCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, size, size).data, idData = idCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, size, size).data, gradientData = gradientCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, size, size).data, packedImageData = ctx.createImageData(size, size); 
+        for (let i = 0; i < packedImageData.data.length; i += 4) { packedImageData.data[i + 0] = uData[i]; packedImageData.data[i + 1] = vData[i]; packedImageData.data[i + 2] = idData[i]; packedImageData.data[i + 3] = gradientData[i]; } ctx.putImageData(packedImageData, 0, 0); 
+    }
+    function displayCanvases(canvases) { const container = document.getElementById('canvas-container'); container.innerHTML = ''; for (const title in canvases) { const canvas = canvases[title]; if (!canvas) continue; const wrapper = document.createElement('div'); wrapper.className = 'canvas-wrapper'; const h3 = document.createElement('h3'); h3.textContent = title; let elementToAppend = canvas; if (!title.includes('Preview')) { const link = document.createElement('a'); link.href = canvas.toDataURL('image/png'); link.download = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.png`; link.appendChild(canvas); elementToAppend = link; } wrapper.appendChild(h3); wrapper.appendChild(elementToAppend); container.appendChild(wrapper); }}
+    
+    let gl, shaderProgram, packedTextureObject, timeUniform;
+    function initWebGLPreview() {
+        const canvas = document.createElement('canvas'); canvas.id = 'webgl-preview'; canvas.width = 1024; canvas.height = 1024;
+        gl = canvas.getContext('webgl', { antialias: true }); if (!gl) { console.error("WebGL not supported!"); return null; }
+        const vertShader = createShader(gl, gl.VERTEX_SHADER, document.getElementById('vertex-shader').text);
+        const fragShader = createShader(gl, gl.FRAGMENT_SHADER, document.getElementById('fragment-shader').text);
+        shaderProgram = createProgram(gl, vertShader, fragShader); gl.useProgram(shaderProgram);
+        const positionAttribLocation = gl.getAttribLocation(shaderProgram, 'a_position');
+        const texCoordAttribLocation = gl.getAttribLocation(shaderProgram, 'a_tex_coord');
+        timeUniform = gl.getUniformLocation(shaderProgram, 'u_time');
+        const packedTexUniform = gl.getUniformLocation(shaderProgram, 'u_packed_texture');
+        const positions = [-1, 1, -1, -1, 1, 1, 1, -1]; const texCoords = [0, 1, 0, 0, 1, 1, 1, 0];
+        setupBuffer(gl, positions, positionAttribLocation, 2); setupBuffer(gl, texCoords, texCoordAttribLocation, 2);
+        
+        packedTextureObject = createWebGLTexture(gl);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, packedTextureObject);
+        gl.uniform1i(packedTexUniform, 0);
+        
+        requestAnimationFrame(renderWebGL);
+        return canvas;
+    }
+    
+    function createShader(gl, type, source) { const shader = gl.createShader(type); gl.shaderSource(shader, source); gl.compileShader(shader); if (gl.getShaderParameter(shader, gl.COMPILE_STATUS)) return shader; console.error("Shader compile error:", gl.getShaderInfoLog(shader)); gl.deleteShader(shader); }
+    function createProgram(gl, vert, frag) { const program = gl.createProgram(); gl.attachShader(program, vert); gl.attachShader(program, frag); gl.linkProgram(program); if (gl.getProgramParameter(program, gl.LINK_STATUS)) return program; console.error("Program link error:", gl.getProgramInfoLog(program)); gl.deleteProgram(program); }
+    function setupBuffer(gl, data, attribLocation, size) { const buffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buffer); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW); gl.enableVertexAttribArray(attribLocation); gl.vertexAttribPointer(attribLocation, size, gl.FLOAT, false, 0, 0); }
+    function createWebGLTexture(gl) { const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); return tex; }
+    
+    function updateWebGLPackedTexture(sourceCanvas) {
+        if (!gl || !packedTextureObject) return;
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, packedTextureObject);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sourceCanvas);
     }
 
-    function renderRadialGradientTexture(ctx, circles, size) {
-        ctx.fillStyle = 'black'; ctx.fillRect(0, 0, size, size);
-        circles.forEach(circle => drawTiled(ctx, size, (tiledCtx) => {
-            const gradient = tiledCtx.createRadialGradient(circle.x, circle.y, 0, circle.x, circle.y, circle.r);
-            gradient.addColorStop(0, 'white'); gradient.addColorStop(1, 'black');
-            tiledCtx.beginPath(); tiledCtx.arc(circle.x, circle.y, circle.r, 0, 2 * Math.PI);
-            tiledCtx.fillStyle = gradient; tiledCtx.fill();
-        }));
-    }
-    
-    function packTextures(ctx, uCanvas, vCanvas, idCanvas, gradientCanvas, size) {
-        const uData = uCanvas.getContext('2d').getImageData(0, 0, size, size).data;
-        const vData = vCanvas.getContext('2d').getImageData(0, 0, size, size).data;
-        const idData = idCanvas.getContext('2d').getImageData(0, 0, size, size).data;
-        const gradientData = gradientCanvas.getContext('2d').getImageData(0, 0, size, size).data;
-        const packedImageData = ctx.createImageData(size, size);
-        for (let i = 0; i < packedImageData.data.length; i += 4) {
-            packedImageData.data[i + 0] = uData[i];
-            packedImageData.data[i + 1] = vData[i];
-            packedImageData.data[i + 2] = idData[i];
-            packedImageData.data[i + 3] = gradientData[i];
-        }
-        ctx.putImageData(packedImageData, 0, 0);
-    }
-    
-    function displayCanvases(canvases) {
-        const container = document.getElementById('canvas-container');
-        // This check is simplified to always redraw, ensuring links are fresh
-        container.innerHTML = ''; 
-        for (const title in canvases) {
-            const canvas = canvases[title];
-            const wrapper = document.createElement('div');
-            wrapper.className = 'canvas-wrapper';
-            const h3 = document.createElement('h3');
-            h3.textContent = title;
-            const link = document.createElement('a');
-            link.href = canvas.toDataURL('image/png');
-            link.download = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.png`;
-            link.appendChild(canvas);
-            wrapper.appendChild(h3);
-            wrapper.appendChild(link);
-            container.appendChild(wrapper);
-        }
+    function renderWebGL(time) {
+        if (!gl) return;
+        gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.uniform1f(timeUniform, time * 0.001);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        requestAnimationFrame(renderWebGL);
     }
     </script>
 </body>
