@@ -71,7 +71,7 @@
             flex-direction: column;
             align-items: center;
         }
-        canvas { border: 1px solid #000; max-width: 100%; height: auto; display: block; }
+        canvas { border: 1px solid #000; max-width: 100%; height: auto; display: block; image-rendering: pixelated; }
         .download-tip { text-align: center; color: var(--text-muted); margin: 1.5rem 0; font-style: italic; }
         footer {
             margin-top: 4rem;
@@ -191,7 +191,7 @@
 
             float pulse = (sin(u_time * 3.0 + id * 10.0) * 0.5 + 0.5);
             float size_threshold = 1.0 - pulse;
-            float circle_mask = smoothstep(size_threshold - 0.05, size_threshold, radial_gradient);
+            float circle_mask = smoothstep(size_threshold - 0.02, size_threshold, radial_gradient); // Sharper edge for pixelated look
 
             if (circle_mask < 0.01) {
                 discard;
@@ -221,12 +221,16 @@
         webGLCanvas.height = currentConfig.canvasSize;
 
         const circlesLayout = generateHierarchicalPackedCircles(currentConfig);
+        const allPixelData = generateAllPixelData(circlesLayout, currentConfig.canvasSize);
+
         const uCanvas = getOrCreateCanvas('uCanvas', currentConfig.canvasSize), vCanvas = getOrCreateCanvas('vCanvas', currentConfig.canvasSize), idCanvas = getOrCreateCanvas('idCanvas', currentConfig.canvasSize), gradientCanvas = getOrCreateCanvas('gradientCanvas', currentConfig.canvasSize), packedCanvas = getOrCreateCanvas('packedCanvas', currentConfig.canvasSize);
-        renderUCoordinateTexture(uCanvas.getContext('2d'), circlesLayout, currentConfig.canvasSize);
-        renderVCoordinateTexture(vCanvas.getContext('2d'), circlesLayout, currentConfig.canvasSize);
-        renderIdTexture(idCanvas.getContext('2d'), circlesLayout, currentConfig.canvasSize);
-        renderRadialGradientTexture(gradientCanvas.getContext('2d'), circlesLayout, currentConfig.canvasSize);
-        packTextures(packedCanvas, uCanvas, vCanvas, idCanvas, gradientCanvas);
+        
+        uCanvas.getContext('2d').putImageData(allPixelData.u, 0, 0);
+        vCanvas.getContext('2d').putImageData(allPixelData.v, 0, 0);
+        idCanvas.getContext('2d').putImageData(allPixelData.id, 0, 0);
+        gradientCanvas.getContext('2d').putImageData(allPixelData.gradient, 0, 0);
+
+        packTextures(packedCanvas, allPixelData);
         displayCanvases({ "U Coordinate (R Channel)": uCanvas, "V Coordinate (G Channel)": vCanvas, "Unique ID / Random Value (B Channel)": idCanvas, "Normalized Radial Gradient (A Channel)": gradientCanvas, "Packed Texture (RGBA)": packedCanvas, "Live Shader Preview": webGLCanvas });
         updateWebGLPackedTexture(packedCanvas);
     }
@@ -239,41 +243,95 @@
 
     function generateHierarchicalPackedCircles(config) { const { canvasSize, maxCircles, minRadius, maxRadius, placementAttempts, sizeBias } = config; let circles = []; for (let i = 0; i < maxCircles; i++) { let newCircle = null; for (let attempt = 0; attempt < placementAttempts; attempt++) { const biasedMaxRadius = minRadius + (Math.pow(rng(), 1 / (sizeBias || 0.5)) * (maxRadius - minRadius)); const potentialCircle = { x: rng() * canvasSize, y: rng() * canvasSize, r: minRadius, id: rng(), maxR: biasedMaxRadius }; let hasOverlap = circles.some(existing => { for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) { if (Math.hypot(potentialCircle.x - (existing.x + dx * canvasSize), potentialCircle.y - (existing.y + dy * canvasSize)) < potentialCircle.r + existing.r) return true; } return false; }); if (!hasOverlap) { newCircle = potentialCircle; break; } } if (!newCircle) continue; while (newCircle.r < newCircle.maxR) { newCircle.r += 1; let hasCollision = circles.some(existing => { for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) { if (Math.hypot(newCircle.x - (existing.x + dx * canvasSize), newCircle.y - (existing.y + dy * canvasSize)) < newCircle.r + existing.r + 1) return true; } return false; }); if (hasCollision) { newCircle.r -= 1; break; } } circles.push(newCircle); } return circles; }
     
-    function getOrCreateCanvas(id, size) { let canvas = document.getElementById(id); if (!canvas) { canvas = document.createElement('canvas'); canvas.id = id; } canvas.width = size; canvas.height = size; return canvas; }
-    function drawTiled(ctx, size, drawCallback) { for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) { ctx.save(); ctx.translate(dx * size, dy * size); drawCallback(ctx); ctx.restore(); }}
-    
-    function renderUCoordinateTexture(ctx, circles, size) {
-        ctx.fillStyle = 'black'; ctx.fillRect(0, 0, size, size);
-        circles.forEach(circle => drawTiled(ctx, size, (tiledCtx) => {
-            const gradient = tiledCtx.createLinearGradient(circle.x - circle.r, circle.y, circle.x + circle.r, circle.y);
-            gradient.addColorStop(0, 'black'); gradient.addColorStop(1, 'white');
-            tiledCtx.beginPath(); tiledCtx.arc(circle.x, circle.y, circle.r, 0, 2 * Math.PI);
-            tiledCtx.fillStyle = gradient; tiledCtx.fill();
-        }));
-    }
-    function renderVCoordinateTexture(ctx, circles, size) {
-        ctx.fillStyle = 'black'; ctx.fillRect(0, 0, size, size);
-        circles.forEach(circle => drawTiled(ctx, size, (tiledCtx) => {
-            const gradient = tiledCtx.createLinearGradient(circle.x, circle.y - circle.r, circle.x, circle.y + circle.r);
-            gradient.addColorStop(0, 'black'); gradient.addColorStop(1, 'white');
-            tiledCtx.beginPath(); tiledCtx.arc(circle.x, circle.y, circle.r, 0, 2 * Math.PI);
-            tiledCtx.fillStyle = gradient; tiledCtx.fill();
-        }));
+    // --- INTEGRATING THE PER-PIXEL RENDERER ---
+    function generateAllPixelData(circles, size) {
+        const uCtx = document.createElement('canvas').getContext('2d');
+        const uImageData = uCtx.createImageData(size, size);
+        const vImageData = uCtx.createImageData(size, size);
+        const idImageData = uCtx.createImageData(size, size);
+        const gradientImageData = uCtx.createImageData(size, size);
+
+        const cellSize = (circles.reduce((max, c) => Math.max(max, c.r), 0) * 2) || 64;
+        const grid = new Map();
+        for (const circle of circles) {
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    const circleInstance = { ...circle, x: circle.x + dx * size, y: circle.y + dy * size };
+                    const minX = Math.floor((circleInstance.x - circleInstance.r) / cellSize);
+                    const maxX = Math.floor((circleInstance.x + circleInstance.r) / cellSize);
+                    const minY = Math.floor((circleInstance.y - circleInstance.r) / cellSize);
+                    const maxY = Math.floor((circleInstance.y + circleInstance.r) / cellSize);
+                    for(let gy = minY; gy <= maxY; gy++) {
+                        for(let gx = minX; gx <= maxX; gx++) {
+                            const key = `${gx},${gy}`;
+                            if(!grid.has(key)) grid.set(key, []);
+                            grid.get(key).push(circleInstance);
+                        }
+                    }
+                }
+            }
+        }
+
+        for (let y = 0; y < size; y++) {
+            for (let x = 0; x < size; x++) {
+                let insideCircle = null;
+                const gridX = Math.floor(x / cellSize);
+                const gridY = Math.floor(y / cellSize);
+                const key = `${gridX},${gridY}`;
+                const circlesToCheck = grid.get(key) || [];
+
+                for (const circle of circlesToCheck) {
+                    const dist_sq = (x - circle.x) * (x - circle.x) + (y - circle.y) * (y - circle.y);
+                    if (dist_sq <= circle.r * circle.r) {
+                        insideCircle = circle;
+                        break;
+                    }
+                }
+
+                const index = (y * size + x) * 4;
+                if (insideCircle) {
+                    const dist = Math.hypot(x-insideCircle.x, y-insideCircle.y);
+                    const radius = insideCircle.r;
+
+                    const u = ((x - (insideCircle.x - radius)) / (2 * radius));
+                    const v = ((y - (insideCircle.y - radius)) / (2 * radius));
+                    const id = insideCircle.id;
+                    const grad = 1.0 - (dist / radius);
+
+                    const uVal = Math.floor(u * 255), vVal = Math.floor(v * 255), idVal = Math.floor(id * 255), gradVal = Math.floor(grad * 255);
+                    uImageData.data.set([uVal, uVal, uVal, 255], index);
+                    vImageData.data.set([vVal, vVal, vVal, 255], index);
+                    idImageData.data.set([idVal, idVal, idVal, 255], index);
+                    gradientImageData.data.set([gradVal, gradVal, gradVal, 255], index);
+                } else {
+                     for(let i=0; i<4; ++i) { uImageData.data[index+i] = vImageData.data[index+i] = idImageData.data[index+i] = gradientImageData.data[index+i] = (i==3 ? 255 : 0); }
+                }
+            }
+        }
+        return { u: uImageData, v: vImageData, id: idImageData, gradient: gradientImageData };
     }
 
-    function renderIdTexture(ctx, circles, size) { ctx.fillStyle = 'black'; ctx.fillRect(0, 0, size, size); circles.forEach(circle => { const intensity = Math.floor(circle.id * 255); const color = `rgb(${intensity}, ${intensity}, ${intensity})`; drawTiled(ctx, size, (tiledCtx) => { tiledCtx.beginPath(); tiledCtx.arc(circle.x, circle.y, circle.r, 0, 2 * Math.PI); tiledCtx.fillStyle = color; tiledCtx.fill(); }); }); }
-    function renderRadialGradientTexture(ctx, circles, size) { ctx.fillStyle = 'black'; ctx.fillRect(0, 0, size, size); circles.forEach(circle => drawTiled(ctx, size, (tiledCtx) => { const gradient = tiledCtx.createRadialGradient(circle.x, circle.y, 0, circle.x, circle.y, circle.r); gradient.addColorStop(0, 'white'); gradient.addColorStop(1, 'black'); tiledCtx.beginPath(); tiledCtx.arc(circle.x, circle.y, circle.r, 0, 2 * Math.PI); tiledCtx.fillStyle = gradient; tiledCtx.fill(); })); }
-    function packTextures(packedCanvas, uCanvas, vCanvas, idCanvas, gradientCanvas) { 
-        const ctx = packedCanvas.getContext('2d'); const size = packedCanvas.width;
-        const uData = uCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, size, size).data, vData = vCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, size, size).data, idData = idCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, size, size).data, gradientData = gradientCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, size, size).data, packedImageData = ctx.createImageData(size, size); 
-        for (let i = 0; i < packedImageData.data.length; i += 4) { packedImageData.data[i + 0] = uData[i]; packedImageData.data[i + 1] = vData[i]; packedImageData.data[i + 2] = idData[i]; packedImageData.data[i + 3] = gradientData[i]; } ctx.putImageData(packedImageData, 0, 0); 
+    function packTextures(packedCanvas, allPixelData) { 
+        const ctx = packedCanvas.getContext('2d');
+        const size = packedCanvas.width;
+        const packedImageData = ctx.createImageData(size, size); 
+        for (let i = 0; i < packedImageData.data.length; i += 4) {
+            packedImageData.data[i + 0] = allPixelData.u.data[i];
+            packedImageData.data[i + 1] = allPixelData.v.data[i];
+            packedImageData.data[i + 2] = allPixelData.id.data[i];
+            packedImageData.data[i + 3] = allPixelData.gradient.data[i];
+        }
+        ctx.putImageData(packedImageData, 0, 0); 
     }
+    
+    // --- THIS SECTION IS FROM YOUR STABLE CODE ---
+    function getOrCreateCanvas(id, size) { let canvas = document.getElementById(id); if (!canvas) { canvas = document.createElement('canvas'); canvas.id = id; } canvas.width = size; canvas.height = size; return canvas; }
     function displayCanvases(canvases) { const container = document.getElementById('canvas-container'); container.innerHTML = ''; for (const title in canvases) { const canvas = canvases[title]; if (!canvas) continue; const wrapper = document.createElement('div'); wrapper.className = 'canvas-wrapper'; const h3 = document.createElement('h3'); h3.textContent = title; let elementToAppend = canvas; if (!title.includes('Preview')) { const link = document.createElement('a'); link.href = canvas.toDataURL('image/png'); link.download = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.png`; link.appendChild(canvas); elementToAppend = link; } wrapper.appendChild(h3); wrapper.appendChild(elementToAppend); container.appendChild(wrapper); }}
     
     let gl, shaderProgram, packedTextureObject, timeUniform;
     function initWebGLPreview() {
         const canvas = document.createElement('canvas'); canvas.id = 'webgl-preview'; canvas.width = 1024; canvas.height = 1024;
-        gl = canvas.getContext('webgl', { antialias: true }); if (!gl) { console.error("WebGL not supported!"); return null; }
+        gl = canvas.getContext('webgl', { antialias: true, premultipliedAlpha: false }); if (!gl) { console.error("WebGL not supported!"); return null; }
         const vertShader = createShader(gl, gl.VERTEX_SHADER, document.getElementById('vertex-shader').text);
         const fragShader = createShader(gl, gl.FRAGMENT_SHADER, document.getElementById('fragment-shader').text);
         shaderProgram = createProgram(gl, vertShader, fragShader); gl.useProgram(shaderProgram);
@@ -296,7 +354,7 @@
     function createShader(gl, type, source) { const shader = gl.createShader(type); gl.shaderSource(shader, source); gl.compileShader(shader); if (gl.getShaderParameter(shader, gl.COMPILE_STATUS)) return shader; console.error("Shader compile error:", gl.getShaderInfoLog(shader)); gl.deleteShader(shader); }
     function createProgram(gl, vert, frag) { const program = gl.createProgram(); gl.attachShader(program, vert); gl.attachShader(program, frag); gl.linkProgram(program); if (gl.getProgramParameter(program, gl.LINK_STATUS)) return program; console.error("Program link error:", gl.getProgramInfoLog(program)); gl.deleteProgram(program); }
     function setupBuffer(gl, data, attribLocation, size) { const buffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buffer); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW); gl.enableVertexAttribArray(attribLocation); gl.vertexAttribPointer(attribLocation, size, gl.FLOAT, false, 0, 0); }
-    function createWebGLTexture(gl) { const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); return tex; }
+    function createWebGLTexture(gl) { const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST); return tex; } // Use NEAREST for sharp pixels
     
     function updateWebGLPackedTexture(sourceCanvas) {
         if (!gl || !packedTextureObject) return;
@@ -308,8 +366,10 @@
     function renderWebGL(time) {
         if (!gl) return;
         gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-        gl.clearColor(0, 0, 0, 0);
+        gl.clearColor(0.09, 0.10, 0.14, 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         gl.uniform1f(timeUniform, time * 0.001);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         requestAnimationFrame(renderWebGL);
