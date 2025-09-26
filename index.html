@@ -83,6 +83,20 @@
         footer p { max-width: 70ch; margin: 0 auto 1rem; line-height: 1.7; }
         footer a { color: var(--accent-color); text-decoration: none; font-weight: bold; }
         footer a:hover { text-decoration: underline; }
+        video {
+            width: 100%;
+            max-width: 560px;
+            height: auto;
+            border-radius: 8px;
+            margin: 1.5rem auto 0.5rem; /* Reduced bottom margin */
+            display: block;
+            border: 1px solid var(--border-color);
+        }
+        .video-credit {
+            font-size: 0.8rem;
+            font-style: italic;
+            margin-bottom: 1.5rem;
+        }
     </style>
 </head>
 <body>
@@ -126,6 +140,10 @@
     <footer>
         <h2>About This Tool</h2>
         <p>This tool generates a <strong>procedurally packed, seamlessly tileable texture</strong> used for high-performance visual effects (VFX) in game development. Instead of storing color, it "packs" useful data into each of the RGBA color channels. In a game engine's shader, this single texture can be used to efficiently draw and animate thousands of elements like particles, bubbles, or sprites.</p>
+        
+        <video controls autoplay muted loop playsinline src="twitvid.mp4"></video>
+        <p class="video-credit">Video demonstration by <a href="https://x.com/Tuatara_Games/status/1971273501349998621" target="_blank">TUATARA</a></p>
+
         <p><strong>How it Works:</strong> The Red channel stores each circle's local horizontal (U) coordinate. Green stores the vertical (V) coordinate. Blue stores a unique random grayscale value, allowing a shader to treat each circle individually. The Alpha channel stores a radial gradient, perfect for defining the shape and size. Because the texture is <strong>seamlessly tileable</strong>, it can be repeated infinitely without visible seams, making it ideal for large surfaces.</p>
         <p>This tool was vibecoded by <a href="https://tront.xyz/" target="_blank">Trent 'Tront' Sterling</a> in a single session with Google's Gemini. It's an interactive web implementation inspired by this brilliant <a href="https://x.com/Tuatara_Games/status/1971273501349998621" target="_blank">post from TUATARA</a>.</p>
         <p>
@@ -348,21 +366,21 @@
     
     function displayCanvases(canvases) {
         const container = document.getElementById('canvas-container');
-        if (container.children.length === 0) {
-            for (const title in canvases) {
-                const canvas = canvases[title];
-                const wrapper = document.createElement('div');
-                wrapper.className = 'canvas-wrapper';
-                const h3 = document.createElement('h3');
-                h3.textContent = title;
-                const link = document.createElement('a');
-                link.href = canvas.toDataURL('image/png');
-                link.download = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.png`;
-                link.appendChild(canvas);
-                wrapper.appendChild(h3);
-                wrapper.appendChild(link);
-                container.appendChild(wrapper);
-            }
+        // This check is simplified to always redraw, ensuring links are fresh
+        container.innerHTML = ''; 
+        for (const title in canvases) {
+            const canvas = canvases[title];
+            const wrapper = document.createElement('div');
+            wrapper.className = 'canvas-wrapper';
+            const h3 = document.createElement('h3');
+            h3.textContent = title;
+            const link = document.createElement('a');
+            link.href = canvas.toDataURL('image/png');
+            link.download = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.png`;
+            link.appendChild(canvas);
+            wrapper.appendChild(h3);
+            wrapper.appendChild(link);
+            container.appendChild(wrapper);
         }
     }
     </script>
