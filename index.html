@@ -553,7 +553,7 @@
 
             // Sweep line rotating, each screen at its own speed
             float sweepSpeed = 1.5 + id * 2.0;
-            float sweepAngle = u_time * sweepSpeed + id * 6.2831;
+            float sweepAngle = -u_time * sweepSpeed + id * 6.2831;
             float angleDiff = mod(angle - sweepAngle + 6.2831, 6.2831);
 
             // Phosphor trail (bright at sweep, fading behind)
