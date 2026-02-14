@@ -97,6 +97,73 @@
             font-style: italic;
             margin-bottom: 1.5rem;
         }
+        .explanation-section {
+            max-width: 800px;
+            margin: 2.5rem auto;
+            text-align: left;
+        }
+        .explanation-section h3 {
+            text-align: left;
+            font-size: 1.15rem;
+            color: var(--accent-color);
+            margin-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.4rem;
+        }
+        .explanation-section p, .explanation-section li {
+            max-width: 70ch;
+            line-height: 1.7;
+            color: var(--text-muted);
+        }
+        .explanation-section ul {
+            padding-left: 1.2rem;
+        }
+        .explanation-section li {
+            margin-bottom: 0.5rem;
+        }
+        .channel-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin: 1rem 0 1.5rem;
+        }
+        .channel-card {
+            background: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+        .channel-card strong {
+            display: block;
+            margin-bottom: 0.3rem;
+        }
+        .channel-card .ch-label {
+            font-size: 0.85rem;
+            color: var(--accent-color);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .channel-card p {
+            font-size: 0.9rem;
+            margin: 0.4rem 0 0;
+        }
+        .code-block {
+            background: #0d0f14;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.85rem;
+            line-height: 1.6;
+            color: var(--text-color);
+            margin: 1rem 0;
+        }
+        .code-block .comment { color: #6a9955; }
+        .code-block .keyword { color: #c586c0; }
+        .code-block .type { color: #4ec9b0; }
+        .code-block .func { color: #dcdcaa; }
+        .code-block .number { color: #b5cea8; }
     </style>
 </head>
 <body>
@@ -138,6 +205,13 @@
                     <option value="2048">2048x2048</option>
                 </select>
             </div>
+            <div class="control-item" title="Switch the live preview between animated pulsing colors and a texture-mapped demo that proves each circle has its own UV space.">
+                <label for="shaderMode">Preview Mode:</label>
+                <select id="shaderMode">
+                    <option value="colors">Pulsing Colors</option>
+                    <option value="texture">Eyeball Texture (UV Demo)</option>
+                </select>
+            </div>
         </div>
         
         <button id="randomize-btn">Generate New Layout</button>
@@ -153,7 +227,73 @@
         <video controls autoplay muted loop playsinline src="twitvid.mp4"></video>
         <p class="video-credit">Video demonstration by <a href="https://x.com/Tuatara_Games/status/1971273501349998621" target="_blank">TUATARA</a></p>
 
-        <p><strong>How it Works:</strong> The Red channel stores each circle's local horizontal (U) coordinate. Green stores the vertical (V) coordinate. Blue stores a unique random grayscale value, allowing a shader to treat each circle individually. The Alpha channel stores a radial gradient, perfect for defining the shape and size. Because the texture is <strong>seamlessly tileable</strong>, it can be repeated infinitely without visible seams, making it ideal for large surfaces.</p>
+        <div class="explanation-section">
+            <h3>Channel Breakdown</h3>
+            <p>Every pixel in the packed texture encodes spatial data instead of color. A shader reads this data to reconstruct each circle's position, identity, and shape at runtime.</p>
+            <div class="channel-grid">
+                <div class="channel-card">
+                    <span class="ch-label">Red &mdash; U Coordinate</span>
+                    <p>Stores each pixel's horizontal position within its circle, from 0 (left edge) to 1 (right edge). This gives each circle its own local X axis, so a shader can map a texture across it horizontally.</p>
+                </div>
+                <div class="channel-card">
+                    <span class="ch-label">Green &mdash; V Coordinate</span>
+                    <p>Stores each pixel's vertical position within its circle, from 0 (top edge) to 1 (bottom edge). Combined with U, this gives every circle a full UV coordinate system for texture mapping.</p>
+                </div>
+                <div class="channel-card">
+                    <span class="ch-label">Blue &mdash; Unique ID</span>
+                    <p>A random value (0&ndash;1) unique to each circle. Shaders use this to give each circle its own color, animation timing, texture offset, or any other per-instance variation &mdash; all from a single number.</p>
+                </div>
+                <div class="channel-card">
+                    <span class="ch-label">Alpha &mdash; Radial Gradient</span>
+                    <p>A gradient from 1.0 at the circle center to 0.0 at the edge. This defines each circle's shape and size. It's used for masking, glow falloff, pulsing animations, and soft edges via smoothstep.</p>
+                </div>
+            </div>
+
+            <h3>How Circle Packing Works</h3>
+            <p>The algorithm uses a greedy placement strategy with growth:</p>
+            <ul>
+                <li><strong>Placement:</strong> For each new circle, the algorithm picks a random position and checks it against all existing circles (including tiled copies at the edges). If there's no overlap, the spot is valid. Otherwise it retries up to the "Placement Density" number of times.</li>
+                <li><strong>Growth:</strong> Once placed, the circle starts at the minimum radius and grows one pixel at a time until it either collides with a neighbor or reaches its target size (influenced by Size Bias). A 1px gap is enforced between circles so they never quite touch.</li>
+                <li><strong>Size Bias:</strong> Controls the size distribution. Values above 0.5 favor placing large circles first (creating a natural mix of big and small), while values below 0.5 favor small circles.</li>
+            </ul>
+
+            <h3>Seamless Tiling</h3>
+            <p>Every circle is checked against 9 copies of the canvas (the center tile plus 8 neighbors in every direction). Circles that cross an edge wrap around and appear on the opposite side. This means the texture repeats perfectly in all directions with no visible seams &mdash; ideal for infinite surfaces, scrolling backgrounds, or large-scale particle fields.</p>
+
+            <h3>Using This Texture in a Game Engine</h3>
+            <p>Download the packed RGBA texture and sample it in any shader. Here's the general idea in HLSL/ShaderLab (Unity) or GLSL:</p>
+            <div class="code-block">
+<span class="comment">// Sample the packed texture</span>
+<span class="type">vec4</span> data = <span class="func">texture</span>(packed_texture, world_uv);
+
+<span class="comment">// Extract channels</span>
+<span class="type">vec2</span> circle_uv = data.rg;     <span class="comment">// Local UV within each circle</span>
+<span class="type">float</span> id       = data.b;      <span class="comment">// Unique ID per circle (0-1)</span>
+<span class="type">float</span> gradient  = data.a;      <span class="comment">// Radial falloff (center=1, edge=0)</span>
+
+<span class="comment">// Use the ID to give each circle a unique color</span>
+<span class="type">vec3</span> color = <span class="func">hsv2rgb</span>(<span class="type">vec3</span>(id, <span class="number">0.8</span>, <span class="number">1.0</span>));
+
+<span class="comment">// Animate: pulse each circle with its own timing</span>
+<span class="type">float</span> pulse = <span class="func">sin</span>(time + id * <span class="number">6.28</span>) * <span class="number">0.5</span> + <span class="number">0.5</span>;
+<span class="type">float</span> mask  = <span class="func">smoothstep</span>(<span class="number">0.0</span>, <span class="number">0.05</span>, gradient - (<span class="number">1.0</span> - pulse));
+
+<span class="comment">// Or: map a sprite/image onto each circle using circle_uv</span>
+<span class="type">vec4</span> sprite = <span class="func">texture</span>(sprite_texture, circle_uv);
+            </div>
+            <p>Because each circle carries its own UV space, you can map any image onto every circle individually. The live preview above demonstrates this with animated colored pulses, but in a real engine you could render eyeballs, bubbles, raindrops, sparks, or any sprite &mdash; thousands of them &mdash; from a single texture lookup with no instancing or draw call overhead.</p>
+
+            <h3>Controls Guide</h3>
+            <ul>
+                <li><strong>Total Circles:</strong> How many circles the algorithm attempts to place. More circles = denser packing, but diminishing returns as space fills up.</li>
+                <li><strong>Min / Max Radius:</strong> The size range for circles in pixels. A wide gap between these produces varied, organic-looking layouts.</li>
+                <li><strong>Placement Density:</strong> How many random positions to try for each circle before giving up. Higher values pack circles more tightly but generation takes longer.</li>
+                <li><strong>Size Bias:</strong> Controls whether the algorithm favors large circles (>0.5) or small circles (&lt;0.5). At 0.8 (default), big circles are placed first and small ones fill the gaps.</li>
+                <li><strong>Seed:</strong> A number that makes the random layout reproducible. Same seed = same layout every time. Set to 0 for a new random seed each generation.</li>
+                <li><strong>Texture Size:</strong> Resolution of the output. 1024x1024 is a good balance. 2048x2048 gives more detail for large displays but generates slower.</li>
+            </ul>
+        </div>
+
         <p>This tool was vibecoded by <a href="https://tront.xyz/" target="_blank">Trent 'Tront' Sterling</a> in a single session with Google's Gemini. It's an interactive web implementation inspired by this brilliant <a href="https://x.com/Tuatara_Games/status/1971273501349998621" target="_blank">post from TUATARA</a>.</p>
         <p>
             <a href="https://tront.xyz/" target="_blank">Tront's Hub</a> &nbsp;&bull;&nbsp; 
@@ -171,7 +311,7 @@
             v_tex_coord = a_tex_coord;
         }
     </script>
-    <script id="fragment-shader" type="x-shader/x-fragment">
+    <script id="fragment-shader-colors" type="x-shader/x-fragment">
         precision mediump float;
         varying vec2 v_tex_coord;
         uniform sampler2D u_packed_texture;
@@ -189,8 +329,6 @@
             float id = packed_data.b;
             float radial_gradient = packed_data.a;
 
-            // Discard background pixels (gradient=0) before animation logic
-            // prevents red flash when pulse peaks and smoothstep lets bg through
             if (radial_gradient < 0.004) {
                 discard;
             }
@@ -206,6 +344,78 @@
             vec3 color = hsv2rgb(vec3(id, 0.8, 1.0));
 
             gl_FragColor = vec4(color, 1.0) * circle_mask;
+        }
+    </script>
+    <script id="fragment-shader-texture" type="x-shader/x-fragment">
+        precision mediump float;
+        varying vec2 v_tex_coord;
+        uniform sampler2D u_packed_texture;
+        uniform sampler2D u_sprite_texture;
+        uniform float u_time;
+
+        mat2 rotate2d(float angle) {
+            float s = sin(angle);
+            float c = cos(angle);
+            return mat2(c, -s, s, c);
+        }
+
+        void main() {
+            vec4 packed_data = texture2D(u_packed_texture, v_tex_coord);
+
+            vec2 circle_uv = packed_data.rg;
+            float id = packed_data.b;
+            float radial_gradient = packed_data.a;
+
+            if (radial_gradient < 0.004) {
+                discard;
+            }
+
+            float edge_mask = smoothstep(0.0, 0.05, radial_gradient);
+            if (edge_mask < 0.01) {
+                discard;
+            }
+
+            // --- Animate the eyeball ---
+
+            // 1. Center UVs for rotation/scaling
+            vec2 centeredUV = circle_uv - 0.5;
+
+            // 2. Slight random rotation per eye so they're not all identical
+            float uniqueAngle = id * 6.2831;
+            float rotAngle = uniqueAngle + sin(u_time * 0.3 + id * 20.0) * 0.15;
+            centeredUV = rotate2d(rotAngle) * centeredUV;
+
+            // 3. "Looking around" - offset the texture to simulate pupil movement
+            //    Each eye looks in its own direction, smoothly drifting over time
+            vec2 lookOffset = vec2(
+                sin(u_time * 1.2 + id * 13.0) * cos(u_time * 0.7 + id * 7.0),
+                cos(u_time * 0.9 + id * 17.0) * sin(u_time * 1.1 + id * 11.0)
+            ) * 0.12;
+            centeredUV += lookOffset;
+
+            // 4. Blinking - squash V axis periodically
+            //    Each eye blinks at its own rate using ID as phase offset
+            float blinkWave = sin(u_time * 2.5 + id * 40.0);
+            // Mostly open (1.0), snap shut briefly when wave dips below threshold
+            float blinkState = smoothstep(-1.0, -0.7, blinkWave);
+            centeredUV.y /= max(blinkState, 0.02);
+
+            // 5. Restore to 0-1 space
+            vec2 finalUV = centeredUV + 0.5;
+
+            // Discard pixels that go outside the texture (blink squash / look offset)
+            if (finalUV.x < 0.0 || finalUV.x > 1.0 || finalUV.y < 0.0 || finalUV.y > 1.0) {
+                discard;
+            }
+
+            // 6. Sample the eyeball sprite with animated UVs
+            vec4 sprite = texture2D(u_sprite_texture, finalUV);
+
+            // 7. Eyelid shadow when blinking (darken as eye closes)
+            float lidShadow = smoothstep(0.3, 1.0, blinkState);
+            sprite.rgb *= mix(0.3, 1.0, lidShadow);
+
+            gl_FragColor = vec4(sprite.rgb, 1.0) * edge_mask;
         }
     </script>
     
@@ -344,41 +554,178 @@
     function getOrCreateCanvas(id, size) { let canvas = document.getElementById(id); if (!canvas) { canvas = document.createElement('canvas'); canvas.id = id; } canvas.width = size; canvas.height = size; return canvas; }
     function displayCanvases(canvases) { const container = document.getElementById('canvas-container'); container.innerHTML = ''; for (const title in canvases) { const canvas = canvases[title]; if (!canvas) continue; const wrapper = document.createElement('div'); wrapper.className = 'canvas-wrapper'; const h3 = document.createElement('h3'); h3.textContent = title; let elementToAppend = canvas; if (!title.includes('Preview')) { const link = document.createElement('a'); link.href = canvas.toDataURL('image/png'); link.download = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.png`; link.appendChild(canvas); elementToAppend = link; } wrapper.appendChild(h3); wrapper.appendChild(elementToAppend); container.appendChild(wrapper); }}
     
-    let gl, shaderProgram, packedTextureObject, timeUniform;
+    let gl, packedTextureObject, spriteTextureObject;
+    let shaderColors, shaderTexture, activeShader;
+    const shaderModeSelect = document.getElementById('shaderMode');
+
+    function buildShaderProgram(fragId) {
+        const vertShader = createShader(gl, gl.VERTEX_SHADER, document.getElementById('vertex-shader').text);
+        const fragShader = createShader(gl, gl.FRAGMENT_SHADER, document.getElementById(fragId).text);
+        const program = createProgram(gl, vertShader, fragShader);
+        return {
+            program: program,
+            timeUniform: gl.getUniformLocation(program, 'u_time'),
+            packedTexUniform: gl.getUniformLocation(program, 'u_packed_texture'),
+            spriteTexUniform: gl.getUniformLocation(program, 'u_sprite_texture'),
+        };
+    }
+
+    function switchShader(mode) {
+        activeShader = (mode === 'texture') ? shaderTexture : shaderColors;
+        gl.useProgram(activeShader.program);
+        gl.uniform1i(activeShader.packedTexUniform, 0);
+        if (activeShader.spriteTexUniform) {
+            gl.uniform1i(activeShader.spriteTexUniform, 1);
+        }
+    }
+
+    shaderModeSelect.addEventListener('change', () => switchShader(shaderModeSelect.value));
+
+    function generateEyeballTexture() {
+        const size = 256;
+        const c = document.createElement('canvas');
+        c.width = size; c.height = size;
+        const ctx = c.getContext('2d');
+        const cx = size / 2, cy = size / 2, r = size / 2;
+
+        // Sclera
+        const scleraGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        scleraGrad.addColorStop(0, '#f5f0e8');
+        scleraGrad.addColorStop(0.7, '#ece5d8');
+        scleraGrad.addColorStop(1, '#c0a898');
+        ctx.fillStyle = scleraGrad;
+        ctx.fillRect(0, 0, size, size);
+
+        // Bloodshot veins
+        ctx.save();
+        ctx.globalAlpha = 0.15;
+        ctx.strokeStyle = '#cc3322';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 12; i++) {
+            const angle = (i / 12) * Math.PI * 2 + 0.3;
+            ctx.beginPath();
+            ctx.moveTo(cx + Math.cos(angle) * r * 0.45, cy + Math.sin(angle) * r * 0.45);
+            const cp1x = cx + Math.cos(angle + 0.15) * r * 0.65;
+            const cp1y = cy + Math.sin(angle + 0.15) * r * 0.65;
+            const endx = cx + Math.cos(angle - 0.1) * r * 0.9;
+            const endy = cy + Math.sin(angle - 0.1) * r * 0.9;
+            ctx.quadraticCurveTo(cp1x, cp1y, endx, endy);
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        // Iris
+        const irisR = r * 0.38;
+        const irisGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, irisR);
+        irisGrad.addColorStop(0, '#2a6e4a');
+        irisGrad.addColorStop(0.3, '#3d9960');
+        irisGrad.addColorStop(0.7, '#2b7744');
+        irisGrad.addColorStop(0.9, '#1a4a2e');
+        irisGrad.addColorStop(1, '#0d2818');
+        ctx.beginPath();
+        ctx.arc(cx, cy, irisR, 0, Math.PI * 2);
+        ctx.fillStyle = irisGrad;
+        ctx.fill();
+
+        // Iris fibres
+        ctx.save();
+        ctx.globalAlpha = 0.2;
+        ctx.globalCompositeOperation = 'screen';
+        for (let i = 0; i < 60; i++) {
+            const angle = (i / 60) * Math.PI * 2;
+            ctx.beginPath();
+            ctx.moveTo(cx + Math.cos(angle) * irisR * 0.25, cy + Math.sin(angle) * irisR * 0.25);
+            ctx.lineTo(cx + Math.cos(angle) * irisR * 0.95, cy + Math.sin(angle) * irisR * 0.95);
+            ctx.strokeStyle = (i % 3 === 0) ? '#88cc88' : '#446644';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        // Limbal ring
+        ctx.beginPath();
+        ctx.arc(cx, cy, irisR, 0, Math.PI * 2);
+        ctx.strokeStyle = '#0a1f12';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        // Pupil
+        const pupilR = r * 0.14;
+        const pupilGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, pupilR);
+        pupilGrad.addColorStop(0, '#000000');
+        pupilGrad.addColorStop(0.85, '#050505');
+        pupilGrad.addColorStop(1, '#111111');
+        ctx.beginPath();
+        ctx.arc(cx, cy, pupilR, 0, Math.PI * 2);
+        ctx.fillStyle = pupilGrad;
+        ctx.fill();
+
+        // Specular highlights
+        ctx.beginPath();
+        ctx.ellipse(cx - r * 0.15, cy - r * 0.18, r * 0.09, r * 0.07, -0.3, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(cx + r * 0.1, cy + r * 0.12, r * 0.035, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.fill();
+
+        return c;
+    }
+
     function initWebGLPreview() {
         const canvas = document.createElement('canvas'); canvas.id = 'webgl-preview'; canvas.width = 1024; canvas.height = 1024;
         gl = canvas.getContext('webgl', { antialias: true, premultipliedAlpha: false }); if (!gl) { console.error("WebGL not supported!"); return null; }
-        const vertShader = createShader(gl, gl.VERTEX_SHADER, document.getElementById('vertex-shader').text);
-        const fragShader = createShader(gl, gl.FRAGMENT_SHADER, document.getElementById('fragment-shader').text);
-        shaderProgram = createProgram(gl, vertShader, fragShader); gl.useProgram(shaderProgram);
-        const positionAttribLocation = gl.getAttribLocation(shaderProgram, 'a_position');
-        const texCoordAttribLocation = gl.getAttribLocation(shaderProgram, 'a_tex_coord');
-        timeUniform = gl.getUniformLocation(shaderProgram, 'u_time');
-        const packedTexUniform = gl.getUniformLocation(shaderProgram, 'u_packed_texture');
+
+        // Build both shader programs
+        shaderColors = buildShaderProgram('fragment-shader-colors');
+        shaderTexture = buildShaderProgram('fragment-shader-texture');
+
+        // Shared vertex buffers (set up once on the colors program, works for both since same attributes)
+        gl.useProgram(shaderColors.program);
         const positions = [-1, 1, -1, -1, 1, 1, 1, -1]; const texCoords = [0, 1, 0, 0, 1, 1, 1, 0];
-        setupBuffer(gl, positions, positionAttribLocation, 2); setupBuffer(gl, texCoords, texCoordAttribLocation, 2);
-        
+        setupBuffer(gl, positions, gl.getAttribLocation(shaderColors.program, 'a_position'), 2);
+        setupBuffer(gl, texCoords, gl.getAttribLocation(shaderColors.program, 'a_tex_coord'), 2);
+
+        // Packed texture on unit 0
         packedTextureObject = createWebGLTexture(gl);
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, packedTextureObject);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
-        gl.uniform1i(packedTexUniform, 0);
-        
+
+        // Sprite texture on unit 1 (eyeball)
+        spriteTextureObject = createWebGLTexture(gl);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, spriteTextureObject);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, generateEyeballTexture());
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        // Use LINEAR for the sprite so it looks smooth
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+        // Start with the colors shader
+        switchShader('colors');
+
         requestAnimationFrame(renderWebGL);
         return canvas;
     }
-    
+
     function createShader(gl, type, source) { const shader = gl.createShader(type); gl.shaderSource(shader, source); gl.compileShader(shader); if (gl.getShaderParameter(shader, gl.COMPILE_STATUS)) return shader; console.error("Shader compile error:", gl.getShaderInfoLog(shader)); gl.deleteShader(shader); }
     function createProgram(gl, vert, frag) { const program = gl.createProgram(); gl.attachShader(program, vert); gl.attachShader(program, frag); gl.linkProgram(program); if (gl.getProgramParameter(program, gl.LINK_STATUS)) return program; console.error("Program link error:", gl.getProgramInfoLog(program)); gl.deleteProgram(program); }
     function setupBuffer(gl, data, attribLocation, size) { const buffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buffer); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW); gl.enableVertexAttribArray(attribLocation); gl.vertexAttribPointer(attribLocation, size, gl.FLOAT, false, 0, 0); }
-    function createWebGLTexture(gl) { const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST); return tex; } // Use NEAREST for sharp pixels
-    
+    function createWebGLTexture(gl) { const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST); return tex; }
+
     function updateWebGLPackedTexture(rawData, size) {
         if (!gl || !packedTextureObject) return;
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, packedTextureObject);
         gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_GL, false);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, rawData);
+        // Re-set REPEAT wrap mode for the packed texture (data texture tiles)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
     }
 
     function renderWebGL(time) {
@@ -388,7 +735,7 @@
         gl.clear(gl.COLOR_BUFFER_BIT);
         gl.enable(gl.BLEND);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-        gl.uniform1f(timeUniform, time * 0.001);
+        gl.uniform1f(activeShader.timeUniform, time * 0.001);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         requestAnimationFrame(renderWebGL);
     }
