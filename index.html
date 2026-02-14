@@ -151,13 +151,15 @@
             background: #0d0f14;
             border: 1px solid var(--border-color);
             border-radius: 8px;
-            padding: 1rem;
+            padding: 1rem 1.2rem;
             overflow-x: auto;
             font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-            font-size: 0.85rem;
-            line-height: 1.6;
+            font-size: 0.82rem;
+            line-height: 1.7;
             color: var(--text-color);
             margin: 1rem 0;
+            white-space: pre;
+            tab-size: 4;
         }
         .code-block .comment { color: #6a9955; }
         .code-block .keyword { color: #c586c0; }
@@ -205,11 +207,15 @@
                     <option value="2048">2048x2048</option>
                 </select>
             </div>
-            <div class="control-item" title="Switch the live preview between animated pulsing colors and a texture-mapped demo that proves each circle has its own UV space.">
+            <div class="control-item" title="Switch the live preview shader to demonstrate different techniques achievable with the packed texture data.">
                 <label for="shaderMode">Preview Mode:</label>
                 <select id="shaderMode">
                     <option value="colors">Pulsing Colors</option>
-                    <option value="texture">Eyeball Texture (UV Demo)</option>
+                    <option value="texture">Eyeball Texture</option>
+                    <option value="wheels">Spinning Wheels</option>
+                    <option value="lava">Lava Bubbles</option>
+                    <option value="radar">Radar Screens</option>
+                    <option value="matrix">Matrix Code</option>
                 </select>
             </div>
         </div>
@@ -262,14 +268,13 @@
 
             <h3>Using This Texture in a Game Engine</h3>
             <p>Download the packed RGBA texture and sample it in any shader. Here's the general idea in HLSL/ShaderLab (Unity) or GLSL:</p>
-            <div class="code-block">
-<span class="comment">// Sample the packed texture</span>
+            <pre class="code-block"><span class="comment">// Sample the packed texture</span>
 <span class="type">vec4</span> data = <span class="func">texture</span>(packed_texture, world_uv);
 
 <span class="comment">// Extract channels</span>
-<span class="type">vec2</span> circle_uv = data.rg;     <span class="comment">// Local UV within each circle</span>
-<span class="type">float</span> id       = data.b;      <span class="comment">// Unique ID per circle (0-1)</span>
-<span class="type">float</span> gradient  = data.a;      <span class="comment">// Radial falloff (center=1, edge=0)</span>
+<span class="type">vec2</span> circle_uv = data.rg;    <span class="comment">// Local UV within each circle</span>
+<span class="type">float</span> id       = data.b;     <span class="comment">// Unique ID per circle (0-1)</span>
+<span class="type">float</span> gradient  = data.a;    <span class="comment">// Radial falloff (center=1, edge=0)</span>
 
 <span class="comment">// Use the ID to give each circle a unique color</span>
 <span class="type">vec3</span> color = <span class="func">hsv2rgb</span>(<span class="type">vec3</span>(id, <span class="number">0.8</span>, <span class="number">1.0</span>));
@@ -279,8 +284,7 @@
 <span class="type">float</span> mask  = <span class="func">smoothstep</span>(<span class="number">0.0</span>, <span class="number">0.05</span>, gradient - (<span class="number">1.0</span> - pulse));
 
 <span class="comment">// Or: map a sprite/image onto each circle using circle_uv</span>
-<span class="type">vec4</span> sprite = <span class="func">texture</span>(sprite_texture, circle_uv);
-            </div>
+<span class="type">vec4</span> sprite = <span class="func">texture</span>(sprite_texture, circle_uv);</pre>
             <p>Because each circle carries its own UV space, you can map any image onto every circle individually. The live preview above demonstrates this with animated colored pulses, but in a real engine you could render eyeballs, bubbles, raindrops, sparks, or any sprite &mdash; thousands of them &mdash; from a single texture lookup with no instancing or draw call overhead.</p>
 
             <h3>Controls Guide</h3>
@@ -418,7 +422,245 @@
             gl_FragColor = vec4(sprite.rgb, 1.0) * edge_mask;
         }
     </script>
-    
+    <script id="fragment-shader-wheels" type="x-shader/x-fragment">
+        precision mediump float;
+        varying vec2 v_tex_coord;
+        uniform sampler2D u_packed_texture;
+        uniform float u_time;
+
+        void main() {
+            vec4 d = texture2D(u_packed_texture, v_tex_coord);
+            float id = d.b;
+            float grad = d.a;
+
+            if (grad < 0.004) discard;
+            float edge = smoothstep(0.0, 0.05, grad);
+            if (edge < 0.01) discard;
+
+            vec2 uv = d.rg * 2.0 - 1.0;
+            float dist = length(uv);
+            float angle = atan(uv.y, uv.x);
+
+            // Spin direction based on ID, variable speed
+            float dir = step(0.5, id) * 2.0 - 1.0;
+            float speed = 3.0 + id * 4.0;
+            float rotAngle = angle + u_time * speed * dir;
+
+            // Spokes (5-8 based on ID)
+            float numSpokes = floor(5.0 + id * 3.0);
+            float spoke = abs(sin(rotAngle * numSpokes));
+            spoke = smoothstep(0.3, 0.6, spoke);
+            float spokeMask = smoothstep(0.2, 0.25, dist) * (1.0 - smoothstep(0.78, 0.82, dist));
+
+            // Hub (center circle)
+            float hub = 1.0 - smoothstep(0.18, 0.22, dist);
+
+            // Rim (outer ring)
+            float rim = smoothstep(0.78, 0.82, dist) * (1.0 - smoothstep(0.92, 0.96, dist));
+
+            // Tire (outer rubber)
+            float tire = smoothstep(0.92, 0.94, dist);
+
+            // Assemble with metallic colors
+            vec3 metalBase = vec3(0.7, 0.72, 0.75);
+            vec3 hubColor = vec3(0.5, 0.52, 0.55);
+            vec3 tireColor = vec3(0.15, 0.15, 0.15);
+            vec3 rimColor = vec3(0.85, 0.87, 0.9);
+
+            vec3 color = metalBase;
+            color = mix(color, metalBase * (0.5 + spoke * 0.5), spokeMask);
+            color = mix(color, hubColor, hub);
+            color = mix(color, rimColor, rim);
+            color = mix(color, tireColor, tire);
+
+            // Subtle specular highlight that rotates
+            float spec = smoothstep(0.95, 1.0, cos(angle - u_time * 0.5) * 0.5 + 0.5);
+            color += spec * 0.15 * (1.0 - tire);
+
+            gl_FragColor = vec4(color, 1.0) * edge;
+        }
+    </script>
+    <script id="fragment-shader-lava" type="x-shader/x-fragment">
+        precision mediump float;
+        varying vec2 v_tex_coord;
+        uniform sampler2D u_packed_texture;
+        uniform float u_time;
+
+        void main() {
+            vec4 d = texture2D(u_packed_texture, v_tex_coord);
+            float id = d.b;
+            float grad = d.a;
+
+            if (grad < 0.004) discard;
+
+            // Each bubble on its own lifecycle, desynchronized by ID
+            float speed = 0.25 + id * 0.3;
+            float lifecycle = fract(u_time * speed + id);
+
+            // Bubble grows from 0 to full size
+            float growSize = lifecycle;
+            float mask = smoothstep(1.0 - growSize, 1.0 - growSize + 0.08, grad);
+
+            // Pop phase: bubble bursts into a fading ring at end of lifecycle
+            float popPhase = smoothstep(0.75, 1.0, lifecycle);
+            float ring = smoothstep(0.3, 0.35, grad) * (1.0 - smoothstep(0.35, 0.5, grad));
+            mask = mix(mask, ring, popPhase);
+
+            // Fade out at the very end
+            mask *= 1.0 - smoothstep(0.9, 1.0, lifecycle);
+
+            if (mask < 0.01) discard;
+
+            // Lava color: deep red core, bright orange/yellow at edges
+            vec3 deep = vec3(0.5, 0.05, 0.0);
+            vec3 hot = vec3(1.0, 0.55, 0.0);
+            vec3 bright = vec3(1.0, 0.9, 0.3);
+
+            float heat = grad * (1.0 - popPhase * 0.5);
+            vec3 color = mix(hot, deep, heat);
+            // Bright rim
+            float rimGlow = smoothstep(0.1, 0.0, grad) * (1.0 - popPhase);
+            color = mix(color, bright, rimGlow * 0.7);
+
+            // Pop glow
+            color = mix(color, bright, popPhase * 0.6);
+
+            // Emissive pulsing
+            float pulse = sin(u_time * 4.0 + id * 20.0) * 0.1 + 0.9;
+            color *= pulse;
+
+            gl_FragColor = vec4(color, 1.0) * mask;
+        }
+    </script>
+    <script id="fragment-shader-radar" type="x-shader/x-fragment">
+        precision mediump float;
+        varying vec2 v_tex_coord;
+        uniform sampler2D u_packed_texture;
+        uniform float u_time;
+
+        void main() {
+            vec4 d = texture2D(u_packed_texture, v_tex_coord);
+            float id = d.b;
+            float grad = d.a;
+
+            if (grad < 0.004) discard;
+            float edge = smoothstep(0.0, 0.05, grad);
+            if (edge < 0.01) discard;
+
+            vec2 uv = d.rg * 2.0 - 1.0;
+            float dist = length(uv);
+            float angle = atan(uv.y, uv.x); // -PI to PI
+
+            // Sweep line rotating, each screen at its own speed
+            float sweepSpeed = 1.5 + id * 2.0;
+            float sweepAngle = u_time * sweepSpeed + id * 6.2831;
+            float angleDiff = mod(angle - sweepAngle + 6.2831, 6.2831);
+
+            // Phosphor trail (bright at sweep, fading behind)
+            float trail = exp(-angleDiff * 1.5) * 0.9;
+
+            // Concentric range rings
+            float rings = abs(sin(dist * 10.0));
+            rings = smoothstep(0.92, 1.0, rings) * 0.2;
+
+            // Crosshair lines
+            float crossH = smoothstep(0.02, 0.0, abs(uv.y)) * 0.15;
+            float crossV = smoothstep(0.02, 0.0, abs(uv.x)) * 0.15;
+
+            // Fake "blips" using ID-derived positions
+            float blipAngle = id * 6.2831 * 3.0;
+            float blipDist = fract(id * 7.0) * 0.7 + 0.15;
+            vec2 blipPos = vec2(cos(blipAngle), sin(blipAngle)) * blipDist;
+            float blip = 1.0 - smoothstep(0.0, 0.08, length(uv - blipPos));
+            // Blip blinks when sweep passes over it
+            float blipSweepDiff = mod(atan(blipPos.y, blipPos.x) - sweepAngle + 6.2831, 6.2831);
+            blip *= exp(-blipSweepDiff * 2.0);
+
+            // Green phosphor CRT look
+            vec3 green = vec3(0.1, 0.9, 0.25);
+            float intensity = trail + rings + crossH + crossV + blip * 1.5;
+
+            // Slight ambient glow at center
+            intensity += 0.03;
+
+            // CRT scanline effect
+            float scanline = sin(d.g * 512.0) * 0.04 + 1.0;
+            intensity *= scanline;
+
+            vec3 color = green * intensity;
+
+            gl_FragColor = vec4(color, 1.0) * edge;
+        }
+    </script>
+    <script id="fragment-shader-matrix" type="x-shader/x-fragment">
+        precision mediump float;
+        varying vec2 v_tex_coord;
+        uniform sampler2D u_packed_texture;
+        uniform float u_time;
+
+        // Simple hash for pseudo-random glyph segments
+        float hash(vec2 p) {
+            return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+        }
+
+        void main() {
+            vec4 d = texture2D(u_packed_texture, v_tex_coord);
+            float id = d.b;
+            float grad = d.a;
+
+            if (grad < 0.004) discard;
+            float edge = smoothstep(0.0, 0.05, grad);
+            if (edge < 0.01) discard;
+
+            vec2 uv = d.rg;
+
+            // Divide each circle into a grid of "character cells"
+            float gridSize = 4.0;
+            vec2 cellPos = floor(uv * gridSize);
+            vec2 cellUV = fract(uv * gridSize);
+
+            // Scrolling: shift rows down over time, each circle at its own speed
+            float scrollSpeed = 1.0 + id * 2.0;
+            cellPos.y += floor(u_time * scrollSpeed + id * 10.0);
+
+            // Which glyph in this cell? Changes over time
+            float glyphSeed = hash(cellPos + vec2(id * 100.0));
+            float changeRate = floor(u_time * (2.0 + glyphSeed * 3.0));
+            float glyphIndex = hash(cellPos + vec2(changeRate, id * 50.0));
+
+            // Draw a procedural "glyph" from segments
+            float glyph = 0.0;
+            vec2 gc = cellUV * 2.0 - 1.0; // -1 to 1 within cell
+
+            // Horizontal bars
+            if (glyphIndex > 0.1) glyph += smoothstep(0.15, 0.0, abs(gc.y - 0.6)) * step(abs(gc.x), 0.6);
+            if (glyphIndex > 0.3) glyph += smoothstep(0.15, 0.0, abs(gc.y + 0.0)) * step(abs(gc.x), 0.6);
+            if (glyphIndex > 0.6) glyph += smoothstep(0.15, 0.0, abs(gc.y + 0.6)) * step(abs(gc.x), 0.6);
+            // Vertical bars
+            if (glyphIndex > 0.2 && glyphIndex < 0.7) glyph += smoothstep(0.15, 0.0, abs(gc.x - 0.5)) * step(abs(gc.y), 0.7);
+            if (glyphIndex > 0.4) glyph += smoothstep(0.15, 0.0, abs(gc.x + 0.5)) * step(abs(gc.y), 0.7);
+            // Diagonal
+            if (glyphIndex > 0.8) glyph += smoothstep(0.18, 0.0, abs(gc.x - gc.y)) * 0.7;
+
+            glyph = clamp(glyph, 0.0, 1.0);
+
+            // Brightness: front of the "rain" column is brighter
+            float columnBrightness = fract(u_time * scrollSpeed * 0.25 + hash(vec2(cellPos.x, id)));
+            float brightness = smoothstep(0.0, 1.0, columnBrightness);
+
+            // Lead character is white-green, trailing is darker green
+            float lead = step(0.85, columnBrightness);
+            vec3 green = vec3(0.1, 0.8, 0.2);
+            vec3 white = vec3(0.75, 1.0, 0.8);
+            vec3 color = mix(green, white, lead) * brightness;
+
+            // Fade edges using gradient
+            float fadeMask = smoothstep(0.0, 0.15, grad);
+
+            gl_FragColor = vec4(color * glyph, 1.0) * edge * fadeMask;
+        }
+    </script>
+
     <script>
     const controls = { maxCircles: document.getElementById('maxCircles'), minRadius: document.getElementById('minRadius'), maxRadius: document.getElementById('maxRadius'), placementAttempts: document.getElementById('placementAttempts'), sizeBias: document.getElementById('sizeBias'), seed: document.getElementById('seed'), textureSize: document.getElementById('textureSize') };
     const valueSpans = { maxCircles: document.getElementById('maxCirclesValue'), minRadius: document.getElementById('minRadiusValue'), maxRadius: document.getElementById('maxRadiusValue'), placementAttempts: document.getElementById('placementAttemptsValue'), sizeBias: document.getElementById('sizeBiasValue'), };
@@ -555,8 +797,17 @@
     function displayCanvases(canvases) { const container = document.getElementById('canvas-container'); container.innerHTML = ''; for (const title in canvases) { const canvas = canvases[title]; if (!canvas) continue; const wrapper = document.createElement('div'); wrapper.className = 'canvas-wrapper'; const h3 = document.createElement('h3'); h3.textContent = title; let elementToAppend = canvas; if (!title.includes('Preview')) { const link = document.createElement('a'); link.href = canvas.toDataURL('image/png'); link.download = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.png`; link.appendChild(canvas); elementToAppend = link; } wrapper.appendChild(h3); wrapper.appendChild(elementToAppend); container.appendChild(wrapper); }}
     
     let gl, packedTextureObject, spriteTextureObject;
-    let shaderColors, shaderTexture, activeShader;
+    let shaders = {}, activeShader;
     const shaderModeSelect = document.getElementById('shaderMode');
+
+    const shaderMap = {
+        colors:  'fragment-shader-colors',
+        texture: 'fragment-shader-texture',
+        wheels:  'fragment-shader-wheels',
+        lava:    'fragment-shader-lava',
+        radar:   'fragment-shader-radar',
+        matrix:  'fragment-shader-matrix',
+    };
 
     function buildShaderProgram(fragId) {
         const vertShader = createShader(gl, gl.VERTEX_SHADER, document.getElementById('vertex-shader').text);
@@ -571,7 +822,7 @@
     }
 
     function switchShader(mode) {
-        activeShader = (mode === 'texture') ? shaderTexture : shaderColors;
+        activeShader = shaders[mode] || shaders.colors;
         gl.useProgram(activeShader.program);
         gl.uniform1i(activeShader.packedTexUniform, 0);
         if (activeShader.spriteTexUniform) {
@@ -678,15 +929,16 @@
         const canvas = document.createElement('canvas'); canvas.id = 'webgl-preview'; canvas.width = 1024; canvas.height = 1024;
         gl = canvas.getContext('webgl', { antialias: true, premultipliedAlpha: false }); if (!gl) { console.error("WebGL not supported!"); return null; }
 
-        // Build both shader programs
-        shaderColors = buildShaderProgram('fragment-shader-colors');
-        shaderTexture = buildShaderProgram('fragment-shader-texture');
+        // Build all shader programs
+        for (const key in shaderMap) {
+            shaders[key] = buildShaderProgram(shaderMap[key]);
+        }
 
-        // Shared vertex buffers (set up once on the colors program, works for both since same attributes)
-        gl.useProgram(shaderColors.program);
+        // Shared vertex buffers
+        gl.useProgram(shaders.colors.program);
         const positions = [-1, 1, -1, -1, 1, 1, 1, -1]; const texCoords = [0, 1, 0, 0, 1, 1, 1, 0];
-        setupBuffer(gl, positions, gl.getAttribLocation(shaderColors.program, 'a_position'), 2);
-        setupBuffer(gl, texCoords, gl.getAttribLocation(shaderColors.program, 'a_tex_coord'), 2);
+        setupBuffer(gl, positions, gl.getAttribLocation(shaders.colors.program, 'a_position'), 2);
+        setupBuffer(gl, texCoords, gl.getAttribLocation(shaders.colors.program, 'a_tex_coord'), 2);
 
         // Packed texture on unit 0
         packedTextureObject = createWebGLTexture(gl);
