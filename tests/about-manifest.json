@@ -1,8 +1,8 @@
 {
   "repository": "spheres",
   "baseline": "4f6037cbcb0ee9a8c3a66ae8feb0f150ba8806e9",
-  "sharedRevision": "83dbfb4d8241501012c5ec22be49d79f28ccf6b7",
-  "javascriptSha256": "78e5f1cd0ab28f5361c445cecf6d539664d6ef5a39ceedb5228e2bfca5501bed",
+  "sharedRevision": "fcda637550b9237140c89f9e42465ddd1cb07bf0",
+  "javascriptSha256": "cb5935a8e19c692c26fb8df302396138393528b0272d4cf00d72a906019248f0",
   "cssSha256": "70723556209736cc1d9e8dff2aa2fb5e68157d6ab0de2983406376baad85a8d0",
   "bio": "<p>A tool for generating procedurally packed, seamlessly tiling textures for games: scatter circles under a packing rule, tune the radius range and density, and preview the result tiled in a live WebGL shader before you export it.</p><p>One page, no install. By Tront (Trent Sterling), a Unity generalist who builds the tools he needs.</p>",
   "title": "Procedural Packed Texture Generator by Tront",
