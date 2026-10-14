@@ -1,0 +1,34 @@
+{
+  "repository": "spheres",
+  "baseline": "4f6037cbcb0ee9a8c3a66ae8feb0f150ba8806e9",
+  "sharedRevision": "83dbfb4d8241501012c5ec22be49d79f28ccf6b7",
+  "javascriptSha256": "78e5f1cd0ab28f5361c445cecf6d539664d6ef5a39ceedb5228e2bfca5501bed",
+  "cssSha256": "70723556209736cc1d9e8dff2aa2fb5e68157d6ab0de2983406376baad85a8d0",
+  "bio": "<p>A tool for generating procedurally packed, seamlessly tiling textures for games: scatter circles under a packing rule, tune the radius range and density, and preview the result tiled in a live WebGL shader before you export it.</p><p>One page, no install. By Tront (Trent Sterling), a Unity generalist who builds the tools he needs.</p>",
+  "title": "Procedural Packed Texture Generator by Tront",
+  "list": "<li><a href=\"https://tront.xyz/vixels/\">VIXELS</a>: Vector materials for voxel surfaces: contours in data textures evaluated in the shader, so you can zoom forever.</li><li><a href=\"https://tront.xyz/threejs-volumetric-beam/\">Volumetric Light Beam</a>: Three.js port of the Half-Life 2 fake volumetric light trick.</li><li><a href=\"https://tront.xyz/lerp/\">Frame-Rate Independent Lerp</a>: Why naive lerp smoothing breaks at different frame rates, and the fix.</li>",
+  "hub": "<a href=\"https://tront.xyz/games/\">All games and tools</a> &middot; <a href=\"https://tront.xyz/blog/\">Devlog</a> &middot; <a href=\"https://tront.xyz/discord/\">Discord</a> &middot; <a href=\"https://github.com/TrentSterling/spheres\">Source on GitHub</a> &middot; <a href=\"https://tront.xyz/\">tront.xyz</a>",
+  "jsonLd": "<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"SoftwareApplication\", \"name\": \"Procedural Packed Texture Generator\", \"alternateName\": [\"Procedural Packed Texture Generator by Tront\"], \"url\": \"https://tront.xyz/spheres/\", \"description\": \"Generate procedurally packed tiling textures with a live WebGL shader preview.\", \"author\": {\"@type\": \"Person\", \"name\": \"Trent Sterling\", \"alternateName\": \"Tront\", \"url\": \"https://tront.xyz/\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"Tront\", \"url\": \"https://tront.xyz/\"}, \"isAccessibleForFree\": true, \"offers\": {\"@type\": \"Offer\", \"price\": \"0\", \"priceCurrency\": \"USD\"}, \"applicationCategory\": \"DeveloperApplication\", \"operatingSystem\": \"Web browser\"}</script>",
+  "scripts": [
+    "dd90d93a5b1cffb8fc5b6108be6a0583a6efbbd12f7c52687a0377fef5a73c2f",
+    "0cae8b3b838598e524d5e81348fce8214277cc83eb57c1d898c5efd0754b6d9e",
+    "b5d76f7adb7188ae1a71bbca769f331440bc1db8a8ed1491c0fc1e49ec48a385",
+    "74e40b30d5c5ef95ff00e7daf214aca308e7c0ca7d67ff5130e5a5618a77b2fe",
+    "cd98d98df8d18f0526a72059d727f7736826261c45f85771556da1a6b2c205f1",
+    "21466473211a851fd1bee3f22f46ee75943667012102e4e6fff4bfa0a40b0075",
+    "ef39e0bccde6bd9b091a199ed52277d45ec7da2ab3af59df8ef3bb8174181818",
+    "c2c100d76ecfa44ecafaab0daae909e35b36b4999b20f618adaa9974ab9d47f3",
+    "d559622d861bd4db000ee2408b899d1dbbf2783544b4f424d6009edbe17fb9dd",
+    "6bf61e6fc450fe69a891194a8d761932157ca101b236ecafa89f754a196703bb"
+  ],
+  "styles": [
+    "579d97cf288fdfd9246bd06727037653d38c94fbf2f420c22d2ea68066d8fc66"
+  ],
+  "videos": [
+    "<video controls autoplay muted loop playsinline src=\"twitvid.mp4\"></video>"
+  ],
+  "surfaceAttributes": [
+    "id=\"canvas-container\""
+  ],
+  "sharedMerge": "5c22da598774e04d2bc854850a8e72b3a7fdb66f"
+}
