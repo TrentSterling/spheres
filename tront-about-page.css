@@ -7,3 +7,4 @@
 #trontAbout .tront-discovery__bio p { margin:0 0 .75rem; }
 #trontAbout .tront-discovery__description { margin:.45rem 0; }
 #trontAbout .tront-discovery__heading h2 { text-align:left; text-shadow:none; }
+#trontAbout [data-tront-discovery-video] { margin:0; box-shadow:none; border-radius:0; }
